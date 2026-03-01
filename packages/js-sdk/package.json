@@ -1,6 +1,6 @@
 {
   "name": "@vantinel/js-sdk",
-  "version": "0.4.0",
+  "version": "0.4.2",
   "description": "Vantinel AI Observability SDK for Browser/JavaScript",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

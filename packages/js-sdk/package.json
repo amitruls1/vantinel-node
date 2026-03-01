@@ -1,0 +1,47 @@
+{
+  "name": "@vantinel/js-sdk",
+  "version": "0.4.0",
+  "description": "Vantinel AI Observability SDK for Browser/JavaScript",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "build:secure": "tsup src/index.ts --format cjs,esm --dts --minify --no-sourcemap",
+    "prepublishOnly": "npm run build:secure",
+    "test": "vitest"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "ai",
+    "observability",
+    "browser",
+    "javascript"
+  ],
+  "author": "Vantinel AI",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/amitruls1/vantinel-node.git",
+    "directory": "packages/js-sdk"
+  },
+  "homepage": "https://github.com/amitruls1/vantinel-node/tree/main/packages/js-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/amitruls1/vantinel-node/issues"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/uuid": "^9.0.0",
+    "jsdom": "^28.1.0",
+    "terser": "^5.27.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}

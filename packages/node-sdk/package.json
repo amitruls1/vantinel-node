@@ -1,0 +1,51 @@
+{
+  "name": "@vantinel/node-sdk",
+  "version": "0.4.0",
+  "description": "Vantinel AI Observability & Guardrails SDK for Node.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "build:secure": "tsc && javascript-obfuscator dist/ --output dist/ --compact true --control-flow-flattening true --dead-code-injection true --string-array true --string-array-encoding rc4 --self-defending true",
+    "prepublishOnly": "npm run build",
+    "test": "jest"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "ai",
+    "llm",
+    "observability",
+    "guardrails",
+    "agent"
+  ],
+  "author": "Vantinel AI",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/amitruls1/vantinel-node.git",
+    "directory": "packages/node-sdk"
+  },
+  "homepage": "https://github.com/amitruls1/vantinel-node/tree/main/packages/node-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/amitruls1/vantinel-node/issues"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "crypto-js": "^4.2.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/crypto-js": "^4.2.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.0.0",
+    "@types/uuid": "^9.0.0",
+    "javascript-obfuscator": "^4.1.0",
+    "jest": "^29.0.0",
+    "ts-jest": "^29.0.0",
+    "typescript": "^5.0.0"
+  }
+}

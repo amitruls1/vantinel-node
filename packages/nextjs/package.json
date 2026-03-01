@@ -1,0 +1,56 @@
+{
+  "name": "@vantinel/nextjs",
+  "version": "0.2.0",
+  "description": "Vantinel AI Observability SDK — Next.js App Router integration",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./server": {
+      "import": "./dist/server.mjs",
+      "require": "./dist/server.js",
+      "types": "./dist/server.d.ts"
+    },
+    "./client": {
+      "import": "./dist/client.mjs",
+      "require": "./dist/client.js",
+      "types": "./dist/client.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.tsx src/server.ts src/client.ts --format cjs,esm --dts",
+    "prepublishOnly": "npm run build"
+  },
+  "files": ["dist/", "README.md", "LICENSE", "CHANGELOG.md"],
+  "keywords": ["vantinel", "nextjs", "ai-observability", "guardrails", "react"],
+  "author": "Vantinel AI",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/amitruls1/vantinel-node.git",
+    "directory": "packages/nextjs"
+  },
+  "homepage": "https://github.com/amitruls1/vantinel-node/tree/main/packages/nextjs#readme",
+  "bugs": {
+    "url": "https://github.com/amitruls1/vantinel-node/issues"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "next": ">=14.0.0"
+  },
+  "dependencies": {
+    "@vantinel/node-sdk": "^0.3.0",
+    "@vantinel/js-sdk": "^0.3.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
+    "@types/react": "^18.0.0",
+    "@types/node": "^20.0.0"
+  }
+}

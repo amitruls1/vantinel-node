@@ -1,0 +1,37 @@
+{
+  "name": "@vantinel/mcp",
+  "version": "0.3.0",
+  "description": "MCP server for Vantinel AI Agent Observability Platform",
+  "keywords": ["mcp", "vantinel", "ai-observability", "agents"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/amitruls1/vantinel-node.git",
+    "directory": "packages/mcp"
+  },
+  "homepage": "https://github.com/amitruls1/vantinel-node/tree/main/packages/mcp#readme",
+  "bugs": {
+    "url": "https://github.com/amitruls1/vantinel-node/issues"
+  },
+  "type": "module",
+  "bin": {
+    "vantinel-mcp": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0"
+  }
+}

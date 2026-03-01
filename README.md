@@ -9,6 +9,7 @@ Real-Time AI Agent Observability & Guardrails for JavaScript and TypeScript.
 | [`@vantinel/node-sdk`](./packages/node-sdk) | ![npm](https://img.shields.io/npm/v/@vantinel/node-sdk) | Node.js SDK for AI agent monitoring |
 | [`@vantinel/js-sdk`](./packages/js-sdk) | ![npm](https://img.shields.io/npm/v/@vantinel/js-sdk) | Browser/JavaScript SDK |
 | [`@vantinel/nextjs`](./packages/nextjs) | ![npm](https://img.shields.io/npm/v/@vantinel/nextjs) | Next.js App Router integration |
+| [`@vantinel/mcp`](./packages/mcp) | ![npm](https://img.shields.io/npm/v/@vantinel/mcp) | MCP server for Claude/AI agent integration |
 
 ## Quick Start
 

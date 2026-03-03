@@ -1,6 +1,6 @@
 {
   "name": "@vantinel/js-sdk",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Vantinel AI Observability SDK for Browser/JavaScript",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -22,7 +22,7 @@
     "browser",
     "javascript"
   ],
-  "author": "Vantinel AI",
+  "author": "Vantinel AI <support@vantinel.com>",
   "repository": {
     "type": "git",
     "url": "https://github.com/amitruls1/vantinel-node.git",

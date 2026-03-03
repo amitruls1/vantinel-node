@@ -1,6 +1,6 @@
 {
   "name": "@vantinel/node-sdk",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Vantinel AI Observability & Guardrails SDK for Node.js",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -22,7 +22,7 @@
     "guardrails",
     "agent"
   ],
-  "author": "Vantinel AI",
+  "author": "Vantinel AI <support@vantinel.com>",
   "license": "MIT",
   "repository": {
     "type": "git",

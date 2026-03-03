@@ -1,6 +1,6 @@
 {
   "name": "@vantinel/nextjs",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Vantinel AI Observability SDK — Next.js App Router integration",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -26,9 +26,20 @@
     "build": "tsup src/index.tsx src/server.ts src/client.ts --format cjs,esm --dts",
     "prepublishOnly": "npm run build"
   },
-  "files": ["dist/", "README.md", "LICENSE", "CHANGELOG.md"],
-  "keywords": ["vantinel", "nextjs", "ai-observability", "guardrails", "react"],
-  "author": "Vantinel AI",
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "keywords": [
+    "vantinel",
+    "nextjs",
+    "ai-observability",
+    "guardrails",
+    "react"
+  ],
+  "author": "Vantinel AI <support@vantinel.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -44,8 +55,8 @@
     "next": ">=14.0.0"
   },
   "dependencies": {
-    "@vantinel/node-sdk": "^0.4.2",
-    "@vantinel/js-sdk": "^0.4.2"
+    "@vantinel/node-sdk": "^0.4.3",
+    "@vantinel/js-sdk": "^0.4.3"
   },
   "devDependencies": {
     "tsup": "^8.0.0",

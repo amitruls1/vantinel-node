@@ -138,6 +138,10 @@ export class VantinelClient {
       this.flushTimer = setInterval(() => {
         this.flush().catch(() => { });
       }, this.config.flushInterval);
+      // Don't keep the process alive just for flushing
+      if (typeof this.flushTimer === 'object' && 'unref' in this.flushTimer) {
+        (this.flushTimer as NodeJS.Timeout).unref();
+      }
     }
   }
 
@@ -176,7 +180,7 @@ export class VantinelClient {
       tool_args_hash: toolArgsHash,
       timestamp: Date.now(),
       latency_ms: options?.latencyMs,
-      ...this.globalMetadata,
+      metadata: { ...this.globalMetadata },
     };
 
     // Only include cost if actually provided
@@ -316,14 +320,12 @@ export class VantinelClient {
     openaiClient.chat.completions.create = async (body: any, reqOptions?: any) => {
       const toolName = 'openai_chat';
       const argsText = typeof body === 'string' ? body : JSON.stringify(body);
-      const sessionId = options?.sessionId || this.sessionId;
 
       const isStream = body?.stream === true || reqOptions?.stream === true;
-      if (isStream) {
-        if (!body.stream_options) {
-          body.stream_options = { include_usage: true };
-        }
-      }
+      // Clone body to avoid mutating the caller's object
+      const modifiedBody = isStream && !body?.stream_options
+        ? { ...body, stream_options: { include_usage: true } }
+        : body;
 
       const startTime = performance.now();
 
@@ -339,13 +341,13 @@ export class VantinelClient {
       }
 
       try {
-        const response = await originalCreate(body, reqOptions);
+        const response = await originalCreate(modifiedBody, reqOptions);
 
         if (isStream) {
           const self = this;
           async function* wrapper() {
             let finalUsage: any = null;
-            let finalModel = body.model;
+            let finalModel = modifiedBody.model;
             try {
               for await (const chunk of response) {
                 if (chunk.usage) finalUsage = chunk.usage;
@@ -412,6 +414,13 @@ export class VantinelClient {
     return openaiClient;
   }
 
+  destroy(): void {
+    if (this.flushTimer) {
+      clearInterval(this.flushTimer);
+      this.flushTimer = null;
+    }
+  }
+
   async flush(): Promise<void> {
     if (this.eventQueue.length === 0) return;
 
@@ -450,8 +459,7 @@ export class VantinelClient {
       error_message: error.message,
       error_name: error.name,
       timestamp: Date.now(),
-      ...this.globalMetadata,
-      ...metadata,
+      metadata: { ...this.globalMetadata, ...(metadata ?? {}) },
     };
 
     if (this.config.dryRun === true) {
@@ -467,7 +475,7 @@ export class VantinelClient {
       const body = JSON.stringify(event);
       const timestamp = Date.now();
       const nonce = generateNonce();
-      const signature = await hmacSign(this.config.apiKey || '', timestamp, body);
+      const signature = await hmacSign(this.config.apiKey || '', timestamp, body, nonce);
 
       const response = await fetch(`${this.config.collectorUrl}/v1/events`, {
         method: 'POST',
@@ -476,8 +484,7 @@ export class VantinelClient {
           'X-Vantinel-Signature': signature,
           'X-Vantinel-Timestamp': String(timestamp),
           'X-Vantinel-Nonce': nonce,
-          'X-Vantinel-Client': this.config.apiKey ? redactApiKey(this.config.apiKey) : '',
-          'X-Vantinel-API-Key': this.config.apiKey || '',
+          'X-Vantinel-Client': this.config.clientId || '',
         },
         body,
       });

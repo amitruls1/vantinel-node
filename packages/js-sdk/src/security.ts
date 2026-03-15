@@ -6,9 +6,9 @@
 /**
  * Generate HMAC-SHA256 signature using Web Crypto API.
  */
-export async function hmacSign(apiKey: string, timestamp: number, body: string): Promise<string> {
+export async function hmacSign(apiKey: string, timestamp: number, body: string, nonce?: string): Promise<string> {
   const encoder = new TextEncoder();
-  const message = `${timestamp}.${body}`;
+  const message = nonce ? `${timestamp}.${nonce}.${body}` : `${timestamp}.${body}`;
 
   const key = await crypto.subtle.importKey(
     'raw',

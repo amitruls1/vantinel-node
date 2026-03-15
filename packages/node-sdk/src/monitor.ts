@@ -51,7 +51,7 @@ export class VantinelMonitor {
     const argsStr = JSON.stringify(args);
     return crypto
       .createHash('sha256')
-      .update(toolName + argsStr)
+      .update(`${toolName}:${argsStr}`)
       .digest('hex')
       .slice(0, 32);
   }
@@ -84,35 +84,36 @@ export class VantinelMonitor {
     return decision;
   }
 
-  monitor<T>(
+  monitor<A extends unknown[], R>(
     toolName: string,
-    fn: T,
+    fn: (...args: A) => R | Promise<R>,
     options?: {
       traceId?: string;
       skip?: boolean;
-      costCalculator?: (result: any) => { estimated_cost: number; metadata?: Record<string, unknown> };
+      costCalculator?: (result: Awaited<R>) => { estimated_cost: number; metadata?: Record<string, unknown> };
     },
-  ): T {
-    return (async (...args: any[]) => {
+  ): (...args: A) => Promise<Awaited<R>> {
+    const self = this;
+    return async (...args: A): Promise<Awaited<R>> => {
       if (options?.skip) {
-        return (fn as any)(...args);
+        return await fn(...args) as Awaited<R>;
       }
 
-      const argsHash = this.hashArgs(toolName, args);
+      const argsHash = self.hashArgs(toolName, args);
       const start = Date.now();
 
       const preEvent = {
-        session_id: this.sessionId,
-        agent_id: this.config.agentId,
+        session_id: self.sessionId,
+        agent_id: self.config.agentId,
         tool_name: toolName,
         tool_args_hash: argsHash,
         timestamp: Date.now(),
         ...(options?.traceId ? { trace_id: options.traceId } : {}),
-        metadata: this.mergeMetadata(),
+        metadata: self.mergeMetadata(),
       };
 
-      const rawDecision = await this.client.sendEvent(preEvent);
-      const decision = await this.applyDecision(rawDecision, toolName);
+      const rawDecision = await self.client.sendEvent(preEvent);
+      const decision = await self.applyDecision(rawDecision, toolName);
 
       if (decision.decision === 'block') {
         throw new Error(`[Vantinel] Tool blocked: ${decision.message || 'Policy violation'}`);
@@ -122,34 +123,38 @@ export class VantinelMonitor {
         console.warn('[Vantinel] Approval required but not implemented in SDK yet. Allowing.');
       }
 
-      const result = await (fn as any)(...args);
-      const latencyMs = Date.now() - start;
+      try {
+        const result = await fn(...args) as Awaited<R>;
+        const latencyMs = Date.now() - start;
 
-      // Send follow-up latency event
-      let estimatedCost: number | undefined;
-      let extraMeta: Record<string, unknown> | undefined;
+        let estimatedCost: number | undefined;
+        let extraMeta: Record<string, unknown> | undefined;
 
-      if (options?.costCalculator) {
-        const calc = options.costCalculator(result);
-        estimatedCost = calc.estimated_cost;
-        extraMeta = calc.metadata;
+        if (options?.costCalculator) {
+          const calc = options.costCalculator(result);
+          estimatedCost = calc.estimated_cost;
+          extraMeta = calc.metadata;
+        }
+
+        self.client.sendEvent({
+          session_id: self.sessionId,
+          agent_id: self.config.agentId,
+          tool_name: toolName,
+          tool_args_hash: argsHash,
+          timestamp: Date.now(),
+          latency_ms: latencyMs,
+          ...(estimatedCost !== undefined ? { estimated_cost: estimatedCost } : {}),
+          ...(options?.traceId ? { trace_id: options.traceId } : {}),
+          event_type: 'tool_result',
+          metadata: self.mergeMetadata(extraMeta),
+        }).catch(() => {});
+
+        return result;
+      } catch (err) {
+        await self.captureError(toolName, err instanceof Error ? err : new Error(String(err))).catch(() => {});
+        throw err;
       }
-
-      await this.client.sendEvent({
-        session_id: this.sessionId,
-        agent_id: this.config.agentId,
-        tool_name: toolName,
-        tool_args_hash: argsHash,
-        timestamp: Date.now(),
-        latency_ms: latencyMs,
-        ...(estimatedCost !== undefined ? { estimated_cost: estimatedCost } : {}),
-        ...(options?.traceId ? { trace_id: options.traceId } : {}),
-        event_type: 'tool_result',
-        metadata: this.mergeMetadata(extraMeta),
-      });
-
-      return result;
-    }) as any;
+    };
   }
 
   async captureError(
@@ -184,71 +189,61 @@ export class VantinelMonitor {
     return this.client.flush();
   }
 
+  async destroy(): Promise<void> {
+    return this.client.destroy();
+  }
+
   startTrace(): string {
     return uuidv4();
   }
 
   wrapOpenAI(openaiClient: any): any {
+    if (!openaiClient?.chat?.completions?.create) {
+      console.warn('[Vantinel] Provided client does not look like an OpenAI client.');
+      return openaiClient;
+    }
+
     const self = this;
-    const handler = {
-      get: (target: any, prop: string) => {
-        if (prop === 'chat') {
-          return {
-            completions: {
-              create: async (params: any) => {
-                const argsHash = crypto
-                  .createHash('sha256')
-                  .update(JSON.stringify(params))
-                  .digest('hex')
-                  .slice(0, 32);
+    const originalCreate = openaiClient.chat.completions.create.bind(openaiClient.chat.completions);
 
-                const rawDecision = await self.client.sendEvent({
-                  session_id: self.sessionId,
-                  agent_id: self.config.agentId,
-                  tool_name: 'openai_chat_completion',
-                  tool_args_hash: argsHash,
-                  timestamp: Date.now(),
-                  metadata: self.mergeMetadata({ model: params.model }),
-                });
+    openaiClient.chat.completions.create = async (params: any, reqOptions?: any) => {
+      const toolName = 'openai_chat';
+      const argsHash = self.hashArgs(toolName, params);
 
-                const decision = await self.applyDecision(
-                  rawDecision,
-                  'openai_chat_completion',
-                );
+      const rawDecision = await self.client.sendEvent({
+        session_id: self.sessionId,
+        agent_id: self.config.agentId,
+        tool_name: toolName,
+        tool_args_hash: argsHash,
+        timestamp: Date.now(),
+        metadata: self.mergeMetadata({ model: params.model }),
+      });
 
-                if (decision.decision === 'block') {
-                  throw new Error(`[Vantinel] Blocked: ${decision.message}`);
-                }
+      const decision = await self.applyDecision(rawDecision, toolName);
 
-                const start = Date.now();
-                const response = await target.chat.completions.create(params);
-                const latencyMs = Date.now() - start;
+      if (decision.decision === 'block') {
+        throw new Error(`[Vantinel] Blocked: ${decision.message}`);
+      }
 
-                // Fire-and-forget latency event
-                self.client
-                  .sendEvent({
-                    session_id: self.sessionId,
-                    agent_id: self.config.agentId,
-                    tool_name: 'openai_chat_completion',
-                    tool_args_hash: argsHash,
-                    timestamp: Date.now(),
-                    latency_ms: latencyMs,
-                    event_type: 'tool_result',
-                    metadata: self.mergeMetadata({ model: params.model }),
-                  })
-                  .catch((err: Error) => {
-                    console.warn('[Vantinel] Failed to send latency event:', err.message);
-                  });
+      const start = Date.now();
+      const response = await originalCreate(params, reqOptions);
+      const latencyMs = Date.now() - start;
 
-                return response;
-              },
-            },
-          };
-        }
-        return target[prop];
-      },
+      self.client.sendEvent({
+        session_id: self.sessionId,
+        agent_id: self.config.agentId,
+        tool_name: toolName,
+        tool_args_hash: argsHash,
+        timestamp: Date.now(),
+        latency_ms: latencyMs,
+        event_type: 'tool_result',
+        metadata: self.mergeMetadata({ model: params.model }),
+      }).catch(() => {});
+
+      return response;
     };
-    return new Proxy(openaiClient, handler);
+
+    return openaiClient;
   }
 
   /**
@@ -264,33 +259,7 @@ export class VantinelMonitor {
     const self = this;
     const chainName = chain.constructor?.name ?? 'chain';
 
-    const wrapMethod = (methodName: string) => async (...args: any[]) => {
-      const argsHash = crypto
-        .createHash('sha256')
-        .update(JSON.stringify(args))
-        .digest('hex')
-        .slice(0, 32);
-      const toolLabel = `langchain_${chainName}_${methodName}`;
-
-      const rawDecision = await self.client.sendEvent({
-        session_id: self.sessionId,
-        agent_id: self.config.agentId,
-        tool_name: toolLabel,
-        tool_args_hash: argsHash,
-        timestamp: Date.now(),
-        metadata: self.mergeMetadata(),
-      });
-
-      const decision = await self.applyDecision(rawDecision, toolLabel);
-
-      if (decision.decision === 'block') {
-        throw new Error(`[Vantinel] Blocked: ${decision.message || 'Policy violation'}`);
-      }
-
-      const start = Date.now();
-      const result = await chain[methodName](...args);
-      const latencyMs = Date.now() - start;
-
+    const sendLatencyEvent = (toolLabel: string, argsHash: string, latencyMs: number) => {
       self.client
         .sendEvent({
           session_id: self.sessionId,
@@ -305,6 +274,56 @@ export class VantinelMonitor {
         .catch((err: Error) => {
           console.warn('[Vantinel] Failed to send latency event:', err.message);
         });
+    };
+
+    const preCheck = async (toolLabel: string, argsHash: string) => {
+      const rawDecision = await self.client.sendEvent({
+        session_id: self.sessionId,
+        agent_id: self.config.agentId,
+        tool_name: toolLabel,
+        tool_args_hash: argsHash,
+        timestamp: Date.now(),
+        metadata: self.mergeMetadata(),
+      });
+
+      const decision = await self.applyDecision(rawDecision, toolLabel);
+
+      if (decision.decision === 'block') {
+        throw new Error(`[Vantinel] Blocked: ${decision.message || 'Policy violation'}`);
+      }
+    };
+
+    const wrapMethod = (methodName: string) => async (...args: any[]) => {
+      const argsHash = crypto
+        .createHash('sha256')
+        .update(JSON.stringify(args))
+        .digest('hex')
+        .slice(0, 32);
+      const toolLabel = `langchain_${chainName}_${methodName}`;
+
+      await preCheck(toolLabel, argsHash);
+
+      const start = Date.now();
+
+      if (methodName === 'stream') {
+        const stream = await chain[methodName](...args);
+        // Wrap the async iterator to measure total stream duration
+        async function* wrappedStream() {
+          try {
+            for await (const chunk of stream) {
+              yield chunk;
+            }
+          } finally {
+            const latencyMs = Date.now() - start;
+            sendLatencyEvent(toolLabel, argsHash, latencyMs);
+          }
+        }
+        return wrappedStream();
+      }
+
+      const result = await chain[methodName](...args);
+      const latencyMs = Date.now() - start;
+      sendLatencyEvent(toolLabel, argsHash, latencyMs);
 
       return result;
     };

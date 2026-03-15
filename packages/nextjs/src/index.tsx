@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { VantinelClient, VantinelConfig, VantinelDecision } from '@vantinel/js-sdk';
 
 interface VantinelContextValue {
@@ -117,6 +117,8 @@ export function useVantinel(): VantinelContextValue {
 export { VantinelClient };
 export type { VantinelConfig, VantinelContextValue, VantinelDecision };
 
-// Re-export server and client utilities for convenience
-export { createServerMonitor } from './server';
+// NOTE: Server utilities (createServerMonitor) are available via '@vantinel/nextjs/server'.
+// They are NOT re-exported here because this file is marked 'use client' and
+// server code (Node.js SDK) cannot be bundled in the client bundle.
+// Client utilities (createClientVantinel) are available via '@vantinel/nextjs/client'.
 export { createClientVantinel } from './client';

@@ -4,8 +4,8 @@ import * as crypto from 'crypto';
  * Generate HMAC-SHA256 signature for request authentication.
  * Covers timestamp + body to prevent replay attacks and tampering.
  */
-export function hmacSign(apiKey: string, timestamp: number, body: string): string {
-  const message = `${timestamp}.${body}`;
+export function hmacSign(apiKey: string, timestamp: number, body: string, nonce?: string): string {
+  const message = nonce ? `${timestamp}.${nonce}.${body}` : `${timestamp}.${body}`;
   return crypto.createHmac('sha256', apiKey).update(message).digest('hex');
 }
 

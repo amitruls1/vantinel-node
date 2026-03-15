@@ -163,7 +163,7 @@ export class VantinelClient {
     const body = JSON.stringify(payload);
     const timestamp = Date.now();
     const nonce = generateNonce();
-    const signature = hmacSign(this.config.apiKey || '', timestamp, body);
+    const signature = hmacSign(this.config.apiKey || '', timestamp, body, nonce);
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -171,7 +171,6 @@ export class VantinelClient {
       'X-Vantinel-Timestamp': String(timestamp),
       'X-Vantinel-Nonce': nonce,
       'X-Vantinel-Client': this.config.clientId || '',
-      'X-Vantinel-API-Key': this.config.apiKey || '',
     };
 
     let lastError: Error | null = null;
@@ -183,8 +182,19 @@ export class VantinelClient {
 
       try {
         const response = await this.client.post('/v1/events', body, { headers });
-        // For batch sends (array payload), return a generic allow
         if (Array.isArray(payload)) {
+          // For batch sends, use the server's aggregate decision if available
+          const data = response.data;
+          if (data && typeof data.decision === 'string') {
+            return data as VantinelDecision;
+          }
+          // If server returns an array of decisions, use the most restrictive one
+          if (Array.isArray(data)) {
+            const dominated = data.find((d: any) => d.decision === 'block');
+            if (dominated) return dominated as VantinelDecision;
+            const approval = data.find((d: any) => d.decision === 'require_approval');
+            if (approval) return approval as VantinelDecision;
+          }
           return { decision: 'allow' };
         }
         return response.data as VantinelDecision;
@@ -355,11 +365,10 @@ export class VantinelClient {
       const hash = createHash('sha256').update(`${toolName}:${argsText}`).digest('hex').slice(0, 32);
 
       const isStream = body?.stream === true || reqOptions?.stream === true;
-      if (isStream) {
-        if (!body.stream_options) {
-          body.stream_options = { include_usage: true };
-        }
-      }
+      // Clone to avoid mutating the caller's object
+      const modifiedBody = isStream && !body.stream_options
+        ? { ...body, stream_options: { include_usage: true } }
+        : body;
 
       const preEvent: VantinelEvent = {
         event_type: 'tool_call',
@@ -380,7 +389,7 @@ export class VantinelClient {
 
       const startTime = process.hrtime.bigint();
       try {
-        const response = await originalCreate(body, reqOptions);
+        const response = await originalCreate(modifiedBody, reqOptions);
 
         if (isStream) {
           const self = this;
@@ -458,6 +467,17 @@ export class VantinelClient {
     };
 
     return openaiClient;
+  }
+
+  /**
+   * Gracefully shut down the client: flush pending events and clear timers.
+   */
+  async destroy(): Promise<void> {
+    if (this.flushTimer) {
+      clearInterval(this.flushTimer);
+      this.flushTimer = null;
+    }
+    await this.flush();
   }
 
   async flush(): Promise<void> {

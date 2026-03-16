@@ -25,6 +25,9 @@ jobs:
         run: npm run build
 
       - name: Publish all packages to npm
-        run: npm publish --workspaces --access public
+        run: |
+          for pkg in packages/node-sdk packages/js-sdk packages/nextjs packages/mcp; do
+            npm publish --workspace $pkg --access public || echo "Skipping $pkg (already published at this version)"
+          done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

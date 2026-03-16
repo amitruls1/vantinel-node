@@ -167,6 +167,7 @@ export class VantinelClient {
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      'X-Vantinel-API-Key': this.config.apiKey || '',
       'X-Vantinel-Signature': signature,
       'X-Vantinel-Timestamp': String(timestamp),
       'X-Vantinel-Nonce': nonce,

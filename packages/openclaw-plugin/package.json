@@ -1,6 +1,6 @@
 {
   "name": "@vantinel/openclaw-plugin",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Vantinel Guardrails plugin for OpenClaw — real-time policy enforcement and observability",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -17,7 +17,14 @@
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run build"
   },
-  "keywords": ["vantinel", "openclaw", "guardrails", "ai-agent", "observability", "policy"],
+  "keywords": [
+    "vantinel",
+    "openclaw",
+    "guardrails",
+    "ai-agent",
+    "observability",
+    "policy"
+  ],
   "author": "Vantinel AI <support@vantinel.com>",
   "license": "MIT",
   "repository": {
@@ -31,13 +38,20 @@
     "README.md"
   ],
   "dependencies": {
-    "@vantinel/openclaw": "*"
+    "@vantinel/openclaw": "*",
+    "zod": "^3.22.0"
   },
   "devDependencies": {
-    "typescript": "^5.4.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "openclaw": "^2026.2.6-3",
+    "typescript": "^5.4.0"
   },
   "engines": {
     "node": ">=22"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ]
   }
 }

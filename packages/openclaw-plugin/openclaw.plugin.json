@@ -1,4 +1,5 @@
 {
+  "id": "openclaw-plugin",
   "name": "@vantinel/openclaw-plugin",
   "version": "1.0.0",
   "displayName": "Vantinel Guardrails",
@@ -6,7 +7,6 @@
   "main": "dist/index.js",
   "configSchema": {
     "type": "object",
-    "required": ["apiKey"],
     "properties": {
       "apiKey": {
         "type": "string",

@@ -1,127 +1,147 @@
-// ==========================================
-// @vantinel/openclaw-plugin
-// OpenClaw plugin entry point — called by OpenClaw on install/startup
-// ==========================================
+/**
+ * @vantinel/openclaw-plugin
+ *
+ * OpenClaw plugin providing real-time guardrails and observability
+ * via the Vantinel gateway.
+ *
+ *   openclaw plugins install @vantinel/openclaw-plugin
+ *   openclaw plugins config @vantinel/openclaw-plugin apiKey vntl_...
+ */
 
-import type { OpenClawPluginApi, VantinelPluginConfig } from './types.js';
-import { startSession, endSession, stepEvent } from './session.js';
-import { configureMcpProxy } from './proxy.js';
+import type { OpenClawPluginApi } from 'openclaw/plugin-sdk';
+import { z } from 'zod';
+import type {
+  VantinelPluginConfig,
+  PluginHookBeforeToolCallEvent,
+  PluginHookBeforeToolCallResult,
+  PluginHookToolContext,
+  PluginHookSessionStartEvent,
+  PluginHookSessionEndEvent,
+  PluginHookSessionContext,
+  PluginHookAfterToolCallEvent,
+} from './types.js';
+import { startSession, endSession, stepSession } from './session.js';
 import { handleGatewayWebhook, getRecentAlerts } from './webhook.js';
 import { checkToolWithGateway } from './tool.js';
 
-export type { VantinelPluginConfig, OpenClawPluginApi, GatewayDecision } from './types.js';
-export { startSession, endSession, stepEvent, errorSession } from './session.js'; // re-exported for programmatic use
-export { configureMcpProxy } from './proxy.js';
-export { handleGatewayWebhook, getRecentAlerts } from './webhook.js';
-export { checkToolWithGateway } from './tool.js';
+const sessions = new Map<string, Awaited<ReturnType<typeof startSession>>>();
 
-/**
- * OpenClaw plugin entry point.
- * OpenClaw calls this on startup after loading the plugin.
- *
- * @example
- * // openclaw.json
- * {
- *   "plugins": {
- *     "entries": {
- *       "@vantinel/openclaw-plugin": {
- *         "config": { "apiKey": "vntl_..." }
- *       }
- *     }
- *   }
- * }
- */
-export async function register(api: OpenClawPluginApi): Promise<void> {
-  const cfg = api.getConfig<VantinelPluginConfig>();
+const configSchema = z.object({
+  apiKey: z.string().optional().default(''),
+  gatewayUrl: z.string().optional(),
+  mode: z.enum(['openclaw', 'nemoclaw']).optional(),
+  failClosed: z.boolean().optional(),
+});
 
-  if (!cfg.apiKey) {
-    console.error('[Vantinel] Plugin not configured: apiKey is required. Run: openclaw plugins config @vantinel/openclaw-plugin apiKey vntl_...');
-    return;
-  }
+const plugin = {
+  id: 'openclaw-plugin',
+  name: 'Vantinel Guardrails',
+  description: 'Real-time policy enforcement and observability for OpenClaw agents',
+  configSchema,
 
-  // 1. Write MCP proxy + LLM gateway + OTLP config into openclaw.json
-  let configPath = '(unknown)';
-  try {
-    configPath = await configureMcpProxy(cfg);
-    console.info(`[Vantinel] Config written to ${configPath}`);
-  } catch (err) {
-    console.warn('[Vantinel] Failed to configure MCP proxy:', err instanceof Error ? err.message : String(err));
-  }
+  register(api: OpenClawPluginApi) {
+    const cfg = (api.pluginConfig ?? {}) as unknown as VantinelPluginConfig;
+    const base = (cfg.gatewayUrl ?? 'https://api.vantinel.com').replace(/\/$/, '');
 
-  // 2. Start agent session — fire-and-forget, never blocks startup
-  const session = await startSession(cfg);
-  console.info(`[Vantinel] Session started: ${session.sessionId}`);
+    if (!cfg.apiKey) {
+      api.logger.warn('Vantinel: apiKey not set. Run: openclaw plugins config @vantinel/openclaw-plugin apiKey vntl_...');
+      return;
+    }
 
-  // 3. Register HTTP webhook route for gateway push alerts (block/require_approval events)
-  api.registerHttpRoute('POST', '/plugins/vantinel/webhook', handleGatewayWebhook);
-
-  // 4. Register vantinel_status tool the agent can call to check its own standing
-  api.registerTool(
-    'vantinel_status',
-    {
-      description:
-        'Check the current Vantinel guardrails status for this agent session. ' +
-        'Returns session ID, cost, step count, and any recent policy alerts.',
-    },
-    async () => {
-      const gatewayUrl = (cfg.gatewayUrl ?? 'https://api.vantinel.com').replace(/\/$/, '');
-      try {
-        const res = await fetch(
-          `${gatewayUrl}/v1/integrations/status?session_id=${encodeURIComponent(session.sessionId)}`,
-          {
-            headers: { 'X-Vantinel-API-Key': cfg.apiKey },
-            signal: AbortSignal.timeout(3000),
-          }
-        );
-        const data = await res.json() as Record<string, unknown>;
-        return {
-          ...data,
-          recent_alerts: getRecentAlerts().slice(0, 5),
-          dashboard_url: `${cfg.gatewayUrl?.replace('8000', '3000') ?? 'https://app.vantinel.com'}/agents/${session.sessionId}`,
-        };
-      } catch {
-        return {
-          status: 'running',
-          session_id: session.sessionId,
-          recent_alerts: getRecentAlerts().slice(0, 5),
-          error: 'Could not reach gateway',
-        };
+    // 1. Track session lifecycle via OpenClaw hooks
+    api.on(
+      'session_start',
+      async (event: PluginHookSessionStartEvent, ctx: PluginHookSessionContext) => {
+        const agentId = ctx.agentId ?? (cfg.mode === 'nemoclaw' ? 'nemoclaw-agent' : 'openclaw-agent');
+        const state = await startSession(cfg, event.sessionId, agentId);
+        sessions.set(event.sessionId, state);
+        api.logger.info(`Vantinel: session started ${event.sessionId}`);
       }
-    }
-  );
+    );
 
-  // 5. Register before_tool_call hook (no-op until OpenClaw wires it — Issue #5943)
-  //    Safe to register now; will activate automatically in a future OpenClaw release.
-  api.registerHook('before_tool_call', async (ctx) => {
-    const result = await checkToolWithGateway(cfg, session, ctx);
+    api.on(
+      'session_end',
+      async (event: PluginHookSessionEndEvent, _ctx: PluginHookSessionContext) => {
+        const state = sessions.get(event.sessionId);
+        if (state) {
+          await endSession(cfg, state);
+          sessions.delete(event.sessionId);
+          api.logger.info(`Vantinel: session ended ${event.sessionId} (${event.durationMs ?? 0}ms)`);
+        }
+      }
+    );
 
-    if (result.decision === 'block') {
-      // When the hook is active, returning 'block' halts execution
-      return 'block';
-    }
-    if (result.decision === 'require_approval') {
-      return 'require_approval';
-    }
+    // 3. before_tool_call — check gateway, block if needed (wired in OpenClaw 2026.2+)
+    api.on(
+      'before_tool_call',
+      async (
+        event: PluginHookBeforeToolCallEvent,
+        ctx: PluginHookToolContext
+      ): Promise<PluginHookBeforeToolCallResult | void> => {
+        const state = ctx.sessionKey ? sessions.get(ctx.sessionKey) : undefined;
+        if (!state) return;
 
-    // Record step for allowed/warned calls
-    void stepEvent(cfg, session, { tool_name: ctx.toolName }).catch(() => {});
-    return 'allow';
-  });
+        const result = await checkToolWithGateway(cfg, state, event.toolName, event.params);
 
-  // 6. End session cleanly on process exit
-  const cleanup = () => {
-    void endSession(cfg, session).catch(() => {});
-  };
+        if (result.decision === 'block') {
+          api.logger.warn(`Vantinel: ⛔ BLOCKED ${event.toolName} — ${result.reason ?? 'policy violation'}`);
+          return { block: true, blockReason: result.reason ?? 'Blocked by Vantinel policy' };
+        }
+        if (result.decision === 'require_approval') {
+          api.logger.warn(`Vantinel: ⏸️ APPROVAL REQUIRED for ${event.toolName}`);
+          return { block: true, blockReason: `Approval required. Dashboard: ${base.replace(':8000', ':3000')}/approvals` };
+        }
+        if (result.decision === 'warn') {
+          api.logger.warn(`Vantinel: ⚠️ WARNING on ${event.toolName} — ${result.reason ?? ''}`);
+        }
+      }
+    );
 
-  process.on('exit', cleanup);
-  process.on('SIGINT', () => {
-    cleanup();
-    process.exit(0);
-  });
-  process.on('SIGTERM', () => {
-    cleanup();
-    process.exit(0);
-  });
+    // 4. after_tool_call — count steps
+    api.on(
+      'after_tool_call',
+      (_event: PluginHookAfterToolCallEvent, ctx: PluginHookToolContext) => {
+        const state = ctx.sessionKey ? sessions.get(ctx.sessionKey) : undefined;
+        if (state) void stepSession(cfg, state, _event.toolName).catch(() => {});
+      }
+    );
 
-  console.info('[Vantinel] Plugin ready. Guardrails active via MCP proxy.');
-}
+    // 5. Webhook for gateway-push block/approval alerts
+    api.registerHttpRoute({ path: '/plugins/vantinel/webhook', handler: handleGatewayWebhook });
+
+    // 6. /vantinel slash command — status check
+    api.registerCommand({
+      name: 'vantinel',
+      description: 'Show Vantinel guardrail status for the current session',
+      handler: async () => {
+        const sessionId = [...sessions.keys()].at(-1);
+        const state = sessionId ? sessions.get(sessionId) : undefined;
+        const alerts = getRecentAlerts().slice(0, 3);
+
+        try {
+          const res = await fetch(
+            `${base}/v1/integrations/status${sessionId ? `?session_id=${sessionId}` : ''}`,
+            { headers: { 'X-Vantinel-API-Key': cfg.apiKey }, signal: AbortSignal.timeout(3000) }
+          );
+          const data = await res.json() as Record<string, unknown>;
+          const sess = data['session'] as Record<string, unknown> | undefined;
+          const lines = [
+            `🛡️ Vantinel Guardrails — connected`,
+            `Session: ${sessionId ?? 'none'}`,
+            state ? `Steps: ${state.stepCount}` : '',
+            sess ? `Cost: $${Number(sess['total_cost'] ?? 0).toFixed(4)}` : '',
+            alerts.length ? `Alerts: ${alerts.map((a) => `${a.type}:${a.tool_name}`).join(', ')}` : '',
+            `Dashboard: ${base.replace(':8000', ':3000')}/agents${sessionId ? `/${sessionId}` : ''}`,
+          ].filter(Boolean);
+          return { text: lines.join('\n') };
+        } catch {
+          return { text: `🛡️ Vantinel: gateway unreachable at ${base}` };
+        }
+      },
+    });
+
+    api.logger.info('Vantinel: plugin ready — guardrails active');
+  },
+};
+
+export default plugin;

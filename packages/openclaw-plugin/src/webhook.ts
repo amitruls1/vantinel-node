@@ -1,50 +1,42 @@
-// ==========================================
-// GATEWAY WEBHOOK HANDLER
-// Receives block/require_approval push alerts from the Vantinel gateway
-// Registered as POST /plugins/vantinel/webhook
-// ==========================================
+import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import type { OpenClawRequest, OpenClawResponse, GatewayWebhookPayload } from './types.js';
+export interface GatewayWebhookPayload {
+  type: 'block' | 'require_approval' | 'warn';
+  session_id: string;
+  tool_name: string;
+  reason?: string;
+  timestamp: string;
+}
 
-/** In-memory queue of recent gateway alerts (capped at 100) */
 const recentAlerts: GatewayWebhookPayload[] = [];
 const MAX_ALERTS = 100;
 
-/**
- * HTTP handler registered with OpenClaw's plugin route system.
- * The gateway POSTs here when it blocks or flags a tool call.
- */
-export function handleGatewayWebhook(req: OpenClawRequest, res: OpenClawResponse): void {
-  let payload: GatewayWebhookPayload;
+export function handleGatewayWebhook(req: IncomingMessage, res: ServerResponse): void {
+  let body = '';
+  req.on('data', (chunk) => { body += chunk; });
+  req.on('end', () => {
+    try {
+      const payload = JSON.parse(body) as GatewayWebhookPayload;
+      if (!payload?.type || !payload?.session_id) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid payload' }));
+        return;
+      }
+      recentAlerts.unshift(payload);
+      if (recentAlerts.length > MAX_ALERTS) recentAlerts.length = MAX_ALERTS;
 
-  try {
-    payload = req.body as GatewayWebhookPayload;
-    if (!payload?.type || !payload?.session_id) {
-      res.status(400).json({ error: 'Invalid webhook payload: missing type or session_id' });
-      return;
+      const label = payload.type === 'block' ? '⛔ BLOCKED' : payload.type === 'require_approval' ? '⏸️ APPROVAL' : '⚠️ WARN';
+      console.warn(`[Vantinel] ${label} session=${payload.session_id} tool=${payload.tool_name}`);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid JSON' }));
     }
-  } catch {
-    res.status(400).json({ error: 'Invalid JSON body' });
-    return;
-  }
-
-  // Store for retrieval by the vantinel_status tool
-  recentAlerts.unshift(payload);
-  if (recentAlerts.length > MAX_ALERTS) {
-    recentAlerts.length = MAX_ALERTS;
-  }
-
-  const label = payload.type === 'block' ? '⛔ BLOCKED' : payload.type === 'require_approval' ? '⏸️ APPROVAL REQUIRED' : '⚠️ WARNING';
-  console.warn(
-    `[Vantinel] ${label} — session=${payload.session_id} tool=${payload.tool_name}${payload.reason ? ` reason="${payload.reason}"` : ''}`
-  );
-
-  res.status(200).json({ ok: true });
+  });
 }
 
-/**
- * Return recent gateway alerts (used by the vantinel_status tool).
- */
 export function getRecentAlerts(): GatewayWebhookPayload[] {
   return [...recentAlerts];
 }

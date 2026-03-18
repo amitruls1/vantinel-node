@@ -1,0 +1,52 @@
+name: Auto-tag package versions
+
+# Runs on every push to main that touches a package.json.
+# For each package, if its version doesn't have a git tag yet, creates one.
+# The new tag triggers the publish workflow automatically.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/*/package.json"
+
+jobs:
+  auto-tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # needed to push tags
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need full history to check existing tags
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create tags for new package versions
+        run: |
+          set -e
+          for pkgjson in packages/*/package.json; do
+            dir=$(dirname "$pkgjson")
+            short=$(basename "$dir")
+            version=$(node -p "require('./$pkgjson').version" 2>/dev/null || echo "")
+
+            if [ -z "$version" ]; then
+              echo "Skipping $short — no version field"
+              continue
+            fi
+
+            tag="${short}-v${version}"
+
+            if git rev-parse "$tag" >/dev/null 2>&1; then
+              echo "Tag $tag already exists, skipping"
+            else
+              echo "Creating tag $tag for $short@$version"
+              git tag "$tag"
+              git push origin "$tag"
+            fi
+          done

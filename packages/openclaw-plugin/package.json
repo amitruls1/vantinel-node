@@ -31,7 +31,7 @@
     "README.md"
   ],
   "dependencies": {
-    "@vantinel/openclaw": "^0.1.0"
+    "@vantinel/openclaw": "*"
   },
   "devDependencies": {
     "typescript": "^5.4.0",

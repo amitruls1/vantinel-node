@@ -1,8 +1,8 @@
-name: Auto-tag package versions
+name: Auto-tag on version bump
 
-# Runs on every push to main that touches a package.json.
-# For each package, if its version doesn't have a git tag yet, creates one.
-# The new tag triggers the publish workflow automatically.
+# When any package.json changes on main, check the node-sdk version
+# (the monorepo's canonical version). If a v{version} tag doesn't
+# exist yet, create it — which triggers the Publish to npm workflow.
 
 on:
   push:
@@ -14,12 +14,12 @@ jobs:
   auto-tag:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # needed to push tags
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # need full history to check existing tags
+          fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure git
@@ -27,26 +27,16 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Create tags for new package versions
+      - name: Create v* tag if version is new
         run: |
-          set -e
-          for pkgjson in packages/*/package.json; do
-            dir=$(dirname "$pkgjson")
-            short=$(basename "$dir")
-            version=$(node -p "require('./$pkgjson').version" 2>/dev/null || echo "")
+          # Use node-sdk as the canonical monorepo version
+          VERSION=$(node -p "require('./packages/node-sdk/package.json').version")
+          TAG="v${VERSION}"
 
-            if [ -z "$version" ]; then
-              echo "Skipping $short — no version field"
-              continue
-            fi
-
-            tag="${short}-v${version}"
-
-            if git rev-parse "$tag" >/dev/null 2>&1; then
-              echo "Tag $tag already exists, skipping"
-            else
-              echo "Creating tag $tag for $short@$version"
-              git tag "$tag"
-              git push origin "$tag"
-            fi
-          done
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists, skipping"
+          else
+            echo "Creating tag $TAG for version $VERSION"
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi

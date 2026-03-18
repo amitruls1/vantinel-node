@@ -21,13 +21,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build all packages
-        run: npm run build --workspaces --if-present
-
-      - name: Publish all packages to npm
+      - name: Build and publish packages
         run: |
           for pkg in packages/node-sdk packages/js-sdk packages/nextjs packages/mcp packages/openclaw packages/openclaw-plugin; do
-            [ -d "$pkg" ] && (npm publish --workspace $pkg --access public || echo "Skipping $pkg (already published at this version)")
+            [ -d "$pkg" ] || continue
+            echo "--- Building $pkg ---"
+            npm run build --workspace $pkg || { echo "Build failed for $pkg, skipping"; continue; }
+            echo "--- Publishing $pkg ---"
+            npm publish --workspace $pkg --access public || echo "Skipping $pkg (already published at this version)"
           done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

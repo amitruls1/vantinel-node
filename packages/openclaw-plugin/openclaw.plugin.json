@@ -1,0 +1,33 @@
+{
+  "name": "@vantinel/openclaw-plugin",
+  "version": "1.0.0",
+  "displayName": "Vantinel Guardrails",
+  "description": "Real-time policy enforcement and observability for OpenClaw agents",
+  "main": "dist/index.js",
+  "configSchema": {
+    "type": "object",
+    "required": ["apiKey"],
+    "properties": {
+      "apiKey": {
+        "type": "string",
+        "description": "Vantinel API key (vntl_...)"
+      },
+      "gatewayUrl": {
+        "type": "string",
+        "default": "https://api.vantinel.com",
+        "description": "Vantinel gateway URL"
+      },
+      "mode": {
+        "type": "string",
+        "enum": ["openclaw", "nemoclaw"],
+        "default": "openclaw",
+        "description": "Agent framework mode"
+      },
+      "failClosed": {
+        "type": "boolean",
+        "default": false,
+        "description": "Block tool calls when gateway is unreachable"
+      }
+    }
+  }
+}

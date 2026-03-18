@@ -1,0 +1,40 @@
+{
+  "name": "@vantinel/openclaw",
+  "version": "0.1.0",
+  "description": "One-line Vantinel observability setup for OpenClaw and NemoClaw autonomous agents",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "keywords": ["vantinel", "openclaw", "nemoclaw", "ai-agent", "observability"],
+  "author": "Vantinel AI <support@vantinel.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/amitruls1/vantinel-node.git",
+    "directory": "packages/openclaw"
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

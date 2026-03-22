@@ -63,9 +63,17 @@ const MODEL_PRICING: Record<string, { input: number; output: number; cache_read?
   'claude-4.5-sonnet': { input: 0.003, output: 0.015 },
   'claude-4.5-haiku': { input: 0.001, output: 0.005 },
 
+  // Anthropic API model IDs (as returned by the API)
+  'claude-opus-4-6': { input: 0.005, output: 0.025, cache_read: 0.0005 },
+  'claude-sonnet-4-6': { input: 0.003, output: 0.015, cache_read: 0.0003 },
+  'claude-haiku-4-5-20251001': { input: 0.001, output: 0.005, cache_read: 0.0001 },
+  'claude-opus-4-5': { input: 0.005, output: 0.025, cache_read: 0.0005 },
+  'claude-sonnet-4-5': { input: 0.003, output: 0.015, cache_read: 0.0003 },
+
   // Anthropic Legacy
-  'claude-3-5-sonnet-20241022': { input: 0.003, output: 0.015 },
-  'claude-3-5-haiku-20241022': { input: 0.0008, output: 0.004 },
+  'claude-3-5-sonnet-20241022': { input: 0.003, output: 0.015, cache_read: 0.0003 },
+  'claude-3-5-haiku-20241022': { input: 0.0008, output: 0.004, cache_read: 0.00008 },
+  'claude-3-opus-20240229': { input: 0.015, output: 0.075, cache_read: 0.0015 },
   'claude-3-opus': { input: 0.015, output: 0.075 },
 
   // Google Models 2026
@@ -412,6 +420,118 @@ export class VantinelClient {
     };
 
     return openaiClient;
+  }
+
+  /**
+   * Auto-instrument an Anthropic client.
+   * Patches `messages.create()` to intercept calls, measure latency,
+   * extract token usage and tool_use blocks, and calculate true cost.
+   *
+   * @param anthropicClient - The instantiated Anthropic client (e.g., `new Anthropic()`)
+   * @param options - Optional configuration for the intercepted calls
+   * @returns The patched Anthropic client
+   */
+  wrapAnthropic(anthropicClient: any, options?: { sessionId?: string; traceId?: string }): any {
+    if (!anthropicClient?.messages?.create) {
+      console.warn('[Vantinel] Provided client does not look like an Anthropic client. wrapAnthropic failed.');
+      return anthropicClient;
+    }
+
+    const originalCreate = anthropicClient.messages.create.bind(anthropicClient.messages);
+
+    anthropicClient.messages.create = async (body: any, reqOptions?: any) => {
+      const toolName = 'anthropic_messages';
+      const argsText = typeof body === 'string' ? body : JSON.stringify(body);
+
+      const isStream = body?.stream === true || reqOptions?.stream === true;
+      const startTime = performance.now();
+
+      // Pre-check with the gateway
+      const decision = await this.track(toolName, { payload: argsText }, {
+        traceId: options?.traceId,
+      });
+
+      if (decision.decision === 'block') {
+        throw new Error(
+          `[Vantinel] Tool call blocked: ${toolName} — ${decision.message || 'Policy violation'}`,
+        );
+      }
+
+      try {
+        const response = await originalCreate(body, reqOptions);
+
+        if (isStream) {
+          const self = this;
+          async function* wrapper() {
+            let inputTokens = 0;
+            let outputTokens = 0;
+            let cacheReadTokens = 0;
+            let finalModel = body.model ?? '';
+            try {
+              for await (const event of response) {
+                // message_start carries initial usage
+                if (event.type === 'message_start' && event.message) {
+                  if (event.message.model) finalModel = event.message.model;
+                  if (event.message.usage) {
+                    inputTokens = event.message.usage.input_tokens ?? 0;
+                    cacheReadTokens = event.message.usage.cache_read_input_tokens ?? 0;
+                  }
+                }
+                // message_delta carries output token count
+                if (event.type === 'message_delta' && event.usage) {
+                  outputTokens = event.usage.output_tokens ?? 0;
+                }
+                yield event;
+              }
+            } finally {
+              const latencyMs = performance.now() - startTime;
+              const estimatedCost = estimateCostFromTokens(
+                finalModel, inputTokens, outputTokens, cacheReadTokens,
+              );
+              self.track(toolName, { payload: argsText }, {
+                traceId: options?.traceId,
+                latencyMs,
+                estimatedCost: estimatedCost || undefined,
+              }).catch(() => { });
+            }
+          }
+          return wrapper();
+        }
+
+        const latencyMs = performance.now() - startTime;
+
+        // Extract usage from Anthropic response
+        let estimatedCost: number | undefined = undefined;
+        if (response.usage && response.model) {
+          const cacheRead = response.usage.cache_read_input_tokens ?? 0;
+          const cost = estimateCostFromTokens(
+            response.model,
+            response.usage.input_tokens ?? 0,
+            response.usage.output_tokens ?? 0,
+            cacheRead,
+          );
+          if (cost > 0) estimatedCost = cost;
+        }
+
+        await this.track(toolName, { payload: argsText }, {
+          traceId: options?.traceId,
+          latencyMs,
+          estimatedCost,
+        });
+
+        return response;
+      } catch (err) {
+        const latencyMs = performance.now() - startTime;
+        await this.captureError(
+          toolName,
+          err instanceof Error ? err : new Error(String(err)),
+          { latency_ms: latencyMs },
+        );
+        throw err;
+      }
+    };
+
+    return anthropicClient;
   }
 
   destroy(): void {

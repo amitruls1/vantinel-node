@@ -1,6 +1,6 @@
 {
   "name": "@vantinel/nextjs",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Vantinel AI Observability SDK — Next.js App Router integration",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -56,7 +56,7 @@
   },
   "dependencies": {
     "@vantinel/node-sdk": "^0.4.3",
-    "@vantinel/js-sdk": "^0.4.3"
+    "@vantinel/js-sdk": "^0.4.4"
   },
   "devDependencies": {
     "tsup": "^8.0.0",
